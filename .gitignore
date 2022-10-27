@@ -1,0 +1,11 @@
+# Ignoring demo files created for exploration
+demo*.py
+# Ignoring the virtual environment folder 'cbook'
+venv/
+# Ignoring the '__pycache__' folder
+__pycache__/
+# Ignoring log files
+*.log
+# Ignoring emacs files
+*~
+#*#
