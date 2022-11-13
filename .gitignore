@@ -8,4 +8,6 @@ __pycache__/
 *.log
 # Ignoring emacs files
 *~
-#*#
+# Ignoring database files
+*.sqlite
+*.db

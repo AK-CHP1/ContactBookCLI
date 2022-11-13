@@ -1,37 +1,41 @@
-from collections import namedtuple
 from datetime import datetime
 import sqlite3
-from typing import List
+from pathlib import Path
+from typing import List, NamedTuple, Tuple, Union, Optional
+
+DATA_PATH = Path.home() / ".cbook_contacts.sqlite"
 
 
-FIELD_NAMES = [
-    "db_id",
-    "first_name",
-    "last_name",
-    "date_added",
-    "phone_personal",
-    "phone_work",
-    "phone_home",
-    "email",
-    "address"
-]
-Contact = namedtuple("Contact", FIELD_NAMES, defaults=[None]*4)
+class Contact(NamedTuple):
+    """Represents the contact data which is stored into the
+    database"""
+
+    db_id: int
+    first_name: str
+    last_name: str
+    date_added: datetime
+    phone_personal: str
+    phone_work: Optional[str] = None
+    phone_home: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+
 
 SCHEMA = """
     PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS Contacts(
         id INTEGER PRIMARY KEY,
         first_name VARCHAR(15) NOT NULL,
-        last_name VARCHAR(15) NOT NULL,
+        last_name VARCHAR(15),
         email VARCHAR(40),
         address VARCHAR(50),
         date_added TIMESTAMP NOT NULL
     );
     CREATE TABLE IF NOT EXISTS Phone_numbers(
         c_id INTEGER,
-        personal VARCHAR(13) UNIQUE NOT NULL,
-        work VARCHAR(13) UNIQUE,
-        home VARCHAR(13) UNIQUE,
+        personal VARCHAR(15) UNIQUE NOT NULL,
+        work VARCHAR(15) UNIQUE,
+        home VARCHAR(15) UNIQUE,
         FOREIGN KEY(c_id) REFERENCES Contacts(id)
             ON DELETE RESTRICT,
         PRIMARY KEY(personal, work, home)
@@ -59,7 +63,8 @@ class DataManager:
     def __init__(self):
 
         self.__conn = sqlite3.connect(
-            "cbook.sqlite", detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+            DATA_PATH,
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
         cur = self.__conn.cursor()
         cur.executescript(SCHEMA)
 
@@ -78,16 +83,17 @@ class DataManager:
         query = """
             SELECT id, first_name, last_name, date_added, personal, work, home, email, address
             FROM Contacts JOIN Phone_numbers ON Contacts.id = Phone_numbers.c_id
-            WHERE first_name || ' ' || last_name LIKE ?
+            WHERE first_name LIKE ? OR last_name LIKE ?
             ORDER BY first_name, last_name;
         """
         param = f"%{name}%"
-        cur.execute(query, (param, ))
+        cur.execute(query, (param, param))
         data = [Contact(*row) for row in cur]
         return data
 
     def fetch_by_phone_no(self, phone: str) -> List[Contact]:
-        """Fetches and returns all the contacts with either phone_no1 or phone_no2
+        """Fetches and returns all the contacts with either
+        phone_no1 or phone_no2
         equal to `phone` from the database
 
         :param phone: Phone no. to search for
@@ -169,7 +175,8 @@ class DataManager:
             return False
 
     def update_contact(self, contact: Contact) -> bool:
-        """Updates the contact in the database with new contact details in `contact`
+        """Updates the contact in the database with new
+        contact details in `contact`
          where `contact.db_id` matches the contact id in the database, returns
         `True` if updates successfully `False` otherwise
 
@@ -201,6 +208,21 @@ class DataManager:
         except sqlite3.Error:
             return False
 
+    def delete_contact(self, contact: Contact) -> None:
+        """Deletes a given contact from the database"""
+
+        cur = self.__conn.cursor()
+
+        # Deleting the phone numbers from Phone_numbers table
+        query = "DELETE FROM Phone_numbers WHERE c_id = ?"
+        cur.execute(query, (contact.db_id, ))
+        # Removing the user from all groups
+        query = "DELETE FROM Group_members WHERE c_id = ?"
+        cur.execute(query, (contact.db_id, ))
+        # Deleting the actual contact
+        query = "DELETE FROM Contacts WHERE id = ?"
+        cur.execute(query, (contact.db_id, ))
+
     def get_new_id(self) -> int:
         """Returns a new id for the contact to use
 
@@ -208,38 +230,41 @@ class DataManager:
         :rtype: int
         """
         cur = self.__conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM Contacts")
-        data = cur.fetchone()
+        cur.execute("SELECT id FROM Contacts")
+        data = cur.fetchall()
+        # Select the last id from contact
+        # Generate new id by adding 1 to it
         if data:
-            new_id = data[0] + 1
+            new_id = data[-1][0] + 1
         else:
             new_id = 1
         return new_id
 
     def create_group(self, name: str) -> None:
         """Creates a group in the contact database
-        
+
         :param name: Name of the group
         :type name: str
-        
+
         :rtype: NoneType"""
 
         cur = self.__conn.cursor()
         query = "INSERT INTO Groups(name) VALUES(?)"
         cur.execute(query, (name,))
-    
-    def fetch_groups(self) -> List[str]:
+
+    def fetch_groups(self) -> List[Tuple[Union[int, str]]]:
         """Fetches and returns a list of groups in a database"""
 
         cur = self.__conn.cursor()
         query = "SELECT * FROM Groups"
         cur.execute(query)
         return cur.fetchall()
-    
+
     def add_contacts_to_group(self, group_id: int, contact_id: int) -> bool:
         """Updates the Group members table, adds contacts with id `contact_id`
-        to group with id `group_id`. Returns `True` if successful `False` otherwise
-        
+        to group with id `group_id`. Returns `True` if
+        successful `False` otherwise
+
         :param group_id: Group ID
         :type group_id: int
         :param contact_id: Contact ID
@@ -251,9 +276,11 @@ class DataManager:
             return True
         except sqlite3.Error:
             return False
-    
-    def remove_contacts_from_group(self, group_id: int, contact_id: int) -> None:
-        """Removes a contact with id `contact_id` from group with id `group_id`"""
+
+    def remove_contacts_from_group(
+            self, group_id: int, contact_id: int) -> None:
+        """Removes a contact with id `contact_id` from group
+        with id `group_id`"""
 
         cur = self.__conn.cursor()
         query = "DELETE FORM Group_members WHERE g_id = ? AND c_id = ?"
@@ -261,7 +288,7 @@ class DataManager:
 
     def get_contacts_from_group(self, group_id: int) -> List[Contact]:
         """Fetches and returns all the contacts from group with id `group_id`
-        
+
         :param group_id: The group_id from which to fetch contacts
         :type group_id: int
         :returns: List of present contacts
@@ -285,3 +312,6 @@ class DataManager:
         query2 = "DELETE FROM Groups WHERE id = ?"
         cur.execute(query1, (group_id,))
         cur.execute(query2, (group_id,))
+
+    def __del__(self):
+        self.__conn.commit()
