@@ -20,6 +20,7 @@ To install this project on your system, just clone this github repo and then run
 
 .. code::
     
+    $ cd ContactBookCLI
     $ python -m venv venv
     $ source venv/bin/activate      # omit `source` if using Windows 
     $ pip install -r requirements.txt
